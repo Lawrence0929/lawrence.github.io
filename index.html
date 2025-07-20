@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="../gwa calculator/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>GWA Calculator - UEP Style</title>
+</head>
+
+<body>
+    <div class="calculator-container">
+        <button id="theme-toggle" aria-label="Toggle dark and light mode">
+            <i class="fas fa-moon"></i>
+        </button>
+
+        <div class="logo-container">
+            <img src="img/logo.png" alt="UEP Logo" />
+        </div>
+
+        <h1>GWA Calculator</h1>
+
+        <div class="subject-inputs-wrapper">
+            <div id="subject-inputs"></div>
+        </div>
+        <div class="button-group">
+            <button id="add-subject">Add Subject</button>
+            <button id="reset-calculator">Reset</button>
+        </div>
+
+        <div class="result-container">
+            <h2>Your GWA: <span id="gwa-result">--</span></h2>
+            <p id="scholarship-status" class="scholarship-text"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const subjectInputsDiv = document.getElementById("subject-inputs");
+            const addSubjectBtn = document.getElementById("add-subject");
+            const resetCalculatorBtn = document.getElementById("reset-calculator");
+            const gwaResultSpan = document.getElementById("gwa-result");
+            const scholarshipStatusP =
+                document.getElementById("scholarship-status");
+            const themeToggleBtn = document.getElementById("theme-toggle");
+            const body = document.body;
+
+            // Function to generate grade options (1.00 to 5.00 with 0.25 interval)
+            function generateGradeOptions(selectedValue = "") {
+                let options = '<option value="">-- Select Grade --</option>';
+                for (let grade = 1.0; grade <= 3.0; grade += 0.25) {
+                    const formattedGrade = grade.toFixed(2);
+                    const selected = formattedGrade === selectedValue ? "selected" : "";
+                    options += `<option value="${formattedGrade}" ${selected}>${formattedGrade}</option>`;
+                }
+                const selected5 = "5.00" === selectedValue ? "selected" : "";
+                options += `<option value="5.00" ${selected5}>5.00</option>`;
+                return options;
+            }
+
+            // Function to generate unit options (1 to 10)
+            function generateUnitOptions(selectedValue = "") {
+                let options = '<option value="">-- Select Units --</option>';
+                for (let units = 1; units <= 10; units++) {
+                    const selected =
+                        units.toString() === selectedValue ? "selected" : "";
+                    options += `<option value="${units}" ${selected}>${units}</option>`;
+                }
+                return options;
+            }
+
+            // Function to create a new subject input row
+            function createSubjectRow(subjectData = {}) {
+                const subjectRow = document.createElement("div");
+                subjectRow.classList.add("subject-row");
+
+                const subjectName = subjectData.name || "";
+                const gradeValue = subjectData.grade || "";
+                const unitsValue = subjectData.units || "";
+
+                subjectRow.innerHTML = `
+                    <input type="text" placeholder="Subject Name (Optional)" class="subject-name" value="${subjectName}">
+                    <select class="grade-select">
+                        ${generateGradeOptions(gradeValue)}
+                    </select>
+                    <select class="units-select">
+                        ${generateUnitOptions(unitsValue)}
+                    </select>
+                    <button class="remove-subject" title="Remove Subject"><i class="fas fa-trash-alt"></i></button>
+                    <div class="error-message hidden"></div>
+                `;
+
+                // Add event listener to the new remove button
+                const removeButton = subjectRow.querySelector(".remove-subject");
+                removeButton.addEventListener("click", () => {
+                    subjectRow.style.opacity = "0";
+                    subjectRow.style.transform = "translateX(-20px)";
+                    subjectRow.addEventListener(
+                        "transitionend",
+                        () => {
+                            subjectRow.remove();
+                            updateRemoveButtonVisibility();
+                            calculateGWA();
+                            saveData(); // Save data after removal
+                        },
+                        {
+                            once: true,
+                        }
+                    );
+                });
+
+                // Add event listeners for input changes to trigger recalculation
+                subjectRow
+                    .querySelector(".subject-name")
+                    .addEventListener("input", () => {
+                        saveData();
+                    });
+                subjectRow
+                    .querySelector(".grade-select")
+                    .addEventListener("change", (event) => {
+                        validateAndCalculate(event.target);
+                        saveData();
+                    });
+                subjectRow
+                    .querySelector(".units-select")
+                    .addEventListener("change", (event) => {
+                        validateAndCalculate(event.target);
+                        saveData();
+                    });
+
+                return subjectRow;
+            }
+
+            // Function to update visibility of remove buttons
+            function updateRemoveButtonVisibility() {
+                const removeButtons = document.querySelectorAll(".remove-subject");
+                if (removeButtons.length === 1) {
+                    removeButtons[0].classList.add("hidden");
+                } else {
+                    removeButtons.forEach((button) =>
+                        button.classList.remove("hidden")
+                    );
+                }
+            }
+
+            // Function to validate and trigger GWA calculation
+            function validateAndCalculate(inputElement) {
+                const row = inputElement.closest(".subject-row");
+                const errorMessageDiv = row.querySelector(".error-message");
+                errorMessageDiv.classList.add("hidden"); // Hide previous error
+
+                const gradeSelect = row.querySelector(".grade-select");
+                const unitsSelect = row.querySelector(".units-select");
+
+                const grade = parseFloat(gradeSelect.value);
+                const units = parseFloat(unitsSelect.value);
+
+                let isValid = true;
+                if (isNaN(grade)) {
+                    gradeSelect.classList.add("error-border");
+                    errorMessageDiv.textContent = "Please select a grade and units.";
+                    errorMessageDiv.classList.remove("hidden");
+                    isValid = false;
+                } else {
+                    gradeSelect.classList.remove("error-border");
+                }
+
+                if (isNaN(units)) {
+                    unitsSelect.classList.add("error-border");
+                    if (isValid) {
+                        // Only set message if grade is valid, otherwise it's already set
+                        errorMessageDiv.textContent = "Please select a grade and units.";
+                        errorMessageDiv.classList.remove("hidden");
+                    }
+                    isValid = false;
+                } else {
+                    unitsSelect.classList.remove("error-border");
+                }
+
+                calculateGWA();
+            }
+
+            // Function to calculate GWA
+            function calculateGWA() {
+                let totalWeightedGrade = 0;
+                let totalUnits = 0;
+                let hasInvalidInputs = false;
+
+                const subjectRows = document.querySelectorAll(".subject-row");
+
+                if (subjectRows.length === 0) {
+                    gwaResultSpan.textContent = "--";
+                    scholarshipStatusP.textContent = "";
+                    scholarshipStatusP.classList.remove(
+                        "scholarship-university",
+                        "scholarship-college",
+                        "scholarship-deans"
+                    );
+                    return;
+                }
+
+                subjectRows.forEach((row) => {
+                    const gradeSelect = row.querySelector(".grade-select");
+                    const unitsSelect = row.querySelector(".units-select");
+                    const errorMessageDiv = row.querySelector(".error-message");
+
+                    const grade = parseFloat(gradeSelect.value);
+                    const units = parseFloat(unitsSelect.value);
+
+                    // Clear previous individual error styles
+                    gradeSelect.classList.remove("error-border");
+                    unitsSelect.classList.remove("error-border");
+                    errorMessageDiv.classList.add("hidden");
+
+                    if (isNaN(grade) || isNaN(units)) {
+                        hasInvalidInputs = true;
+                        gradeSelect.classList.add("error-border");
+                        unitsSelect.classList.add("error-border");
+                        errorMessageDiv.textContent =
+                            "Please select both grade and units.";
+                        errorMessageDiv.classList.remove("hidden");
+                    } else {
+                        totalWeightedGrade += grade * units;
+                        totalUnits += units;
+                    }
+                });
+
+                if (hasInvalidInputs) {
+                    gwaResultSpan.textContent = "--";
+                    scholarshipStatusP.textContent = "";
+                    scholarshipStatusP.classList.remove(
+                        "scholarship-university",
+                        "scholarship-college",
+                        "scholarship-deans"
+                    );
+                    return;
+                }
+
+                if (totalUnits === 0) {
+                    gwaResultSpan.textContent = "N/A";
+                    scholarshipStatusP.textContent =
+                        "Please enter units for at least one subject.";
+                    scholarshipStatusP.classList.remove(
+                        "scholarship-university",
+                        "scholarship-college",
+                        "scholarship-deans"
+                    );
+                    return;
+                }
+
+                const gwa = totalWeightedGrade / totalUnits;
+                gwaResultSpan.textContent = gwa.toFixed(3);
+                gwaResultSpan.classList.add("animate"); // Trigger animation
+                gwaResultSpan.addEventListener(
+                    "animationend",
+                    () => {
+                        gwaResultSpan.classList.remove("animate");
+                    },
+                    {
+                        once: true,
+                    }
+                );
+                displayScholarshipStatus(gwa);
+            }
+
+            function displayScholarshipStatus(gwa) {
+                scholarshipStatusP.classList.remove(
+                    "scholarship-university",
+                    "scholarship-college",
+                    "scholarship-deans"
+                );
+
+                if (gwa <= 1.5) {
+                    scholarshipStatusP.textContent =
+                        "Congratulations! You are eligible for University Scholarship!";
+                    scholarshipStatusP.classList.add("scholarship-university");
+                } else if (gwa <= 1.75) {
+                    scholarshipStatusP.textContent =
+                        "Great job! You are eligible for College Scholarship!";
+                    scholarshipStatusP.classList.add("scholarship-college");
+                } else if (gwa <= 2.0) {
+                    scholarshipStatusP.textContent =
+                        "Well done! You are eligible for Dean's List!";
+                    scholarshipStatusP.classList.add("scholarship-deans");
+                } else {
+                    scholarshipStatusP.textContent =
+                        "Keep striving for academic excellence!";
+                }
+            }
+
+            // Save data to local storage
+            function saveData() {
+                const subjects = [];
+                document.querySelectorAll(".subject-row").forEach((row) => {
+                    subjects.push({
+                        name: row.querySelector(".subject-name").value,
+                        grade: row.querySelector(".grade-select").value,
+                        units: row.querySelector(".units-select").value,
+                    });
+                });
+                localStorage.setItem("gwaCalculatorData", JSON.stringify(subjects));
+            }
+
+            // Load data from local storage
+            function loadData() {
+                const savedData = localStorage.getItem("gwaCalculatorData");
+                if (savedData) {
+                    const subjects = JSON.parse(savedData);
+                    subjectInputsDiv.innerHTML = ""; // Clear existing rows
+                    if (subjects.length > 0) {
+                        subjects.forEach((subject) =>
+                            subjectInputsDiv.appendChild(createSubjectRow(subject))
+                        );
+                    } else {
+                        subjectInputsDiv.appendChild(createSubjectRow()); // Add a default row if no data
+                    }
+                } else {
+                    subjectInputsDiv.appendChild(createSubjectRow()); // Add an initial row if no saved data
+                }
+                updateRemoveButtonVisibility();
+                calculateGWA();
+            }
+
+            // Theme switching logic
+            function applyTheme(theme) {
+                if (theme === "dark") {
+                    body.classList.add("dark-mode");
+                    themeToggleBtn.innerHTML = '<i class="fas fa-sun"></i>';
+                    themeToggleBtn.title = "Switch to Light Mode";
+                } else {
+                    body.classList.remove("dark-mode");
+                    themeToggleBtn.innerHTML = '<i class="fas fa-moon"></i>';
+                    themeToggleBtn.title = "Switch to Dark Mode";
+                }
+                localStorage.setItem("gwaTheme", theme);
+            }
+
+            function toggleTheme() {
+                if (body.classList.contains("dark-mode")) {
+                    applyTheme("light");
+                } else {
+                    applyTheme("dark");
+                }
+            }
+
+            // Event listener for adding new subjects
+            addSubjectBtn.addEventListener("click", () => {
+                const newRow = createSubjectRow();
+                subjectInputsDiv.appendChild(newRow);
+                updateRemoveButtonVisibility();
+                calculateGWA();
+                saveData(); // Save data after adding a new row
+
+                // Scroll the new row into view within its scrollable container
+                newRow.scrollIntoView({
+                    behavior: "smooth",
+                    block: "end",
+                });
+            });
+
+            // Event listener for resetting the calculator
+            resetCalculatorBtn.addEventListener("click", () => {
+                subjectInputsDiv.innerHTML = ""; // Clear all subject rows
+                subjectInputsDiv.appendChild(createSubjectRow()); // Add one fresh row
+                localStorage.removeItem("gwaCalculatorData"); // Clear local storage
+                updateRemoveButtonVisibility();
+                calculateGWA(); // Recalculate GWA (will be '--')
+            });
+
+            // Event listener for theme toggle
+            themeToggleBtn.addEventListener("click", toggleTheme);
+
+            // Initial load of data and theme when the page loads
+            const savedTheme = localStorage.getItem("gwaTheme");
+            if (savedTheme) {
+                applyTheme(savedTheme);
+            } else if (
+                window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+            ) {
+                // Check for user's system preference if no theme is saved
+                applyTheme("dark");
+            } else {
+                applyTheme("light"); // Default to light mode
+            }
+            loadData();
+        });
+    </script>
+</body>
+
+</html>
